@@ -1,0 +1,248 @@
+import streamlit as st
+import openpyxl
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+import streamlit as st
+import jupytext
+import os
+import matplotlib.pyplot as plt
+import win32com.client as win32
+
+def display_notebook(notebook_file):
+    # Read the notebook file using Jupytext
+    notebook_content = jupytext.read(notebook_file, fmt="notebook")
+
+    # Iterate through notebook cells and display them
+    for cell in notebook_content.cells:
+        if cell.cell_type == 'code':
+            st.code(cell.source, language='python')  # Display source code
+            with st.spinner("Executing..."):
+                try:
+                    # Execute the code
+                    exec(cell.source)
+                    
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                else:
+                    st.success("Execution completed successfully")
+        
+        elif cell.cell_type == 'markdown':
+            st.markdown(cell.source)
+                        
+def column_letter_to_number(letter):
+    # Convert column letter to numeric value (0-based, treating A as 0)
+    return ord(letter.upper()) - ord('A')
+
+def display_notebooks(dir):
+    # Assuming the notebooks are located in the 'EMIR-Refit' directory
+    notebook_directory = dir
+
+    # Get a list of notebook files in the selected directory
+    notebook_files = [f for f in os.listdir(notebook_directory) if f.endswith(".ipynb")]
+
+    # Create a dropdown for selecting a notebook file
+    selected_notebook = st.sidebar.selectbox("Choose a Jupyter notebook file", notebook_files)
+
+    if selected_notebook:
+        st.sidebar.markdown("### Selected Notebook:")
+        st.sidebar.text(selected_notebook)
+
+        # Display the notebook
+        notebook_path = os.path.join(notebook_directory, selected_notebook)
+        display_notebook(notebook_path)
+
+def fetch_excel_values(file_path, sheet_name, rows, columns):
+    # Load the Excel workbook
+    workbook = openpyxl.load_workbook(file_path)
+
+    # Select the sheet by name
+    sheet = workbook[sheet_name]
+
+    # Convert column letters to numeric values
+    col_numbers = [column_letter_to_number(col) for col in columns]
+
+    # Fetch values from specified rows and columns
+    result = []
+    for row_number in rows:
+        row_values = [sheet.cell(row=row_number, column=col_number + 1).value for col_number in col_numbers]
+        result.append(row_values)
+
+    # Close the workbook
+    workbook.close()
+
+    return result
+
+def show_summary_from_excel_sheet(path):
+    excel_files = [f for f in os.listdir(path) if f.endswith(".xlsx")]
+
+    # Create a dropdown for selecting an Excel file
+    selected_excel_file = st.sidebar.selectbox("Choose an Excel file from EMIR-Refit", excel_files)
+    if selected_excel_file:
+        # Concatenate the folder path and selected file
+        file_path = os.path.join(path, selected_excel_file)
+
+        # Allow the user to choose a sheet from the selected Excel file
+        sheet_name = st.sidebar.selectbox("Choose a sheet from the Excel file", pd.ExcelFile(file_path).sheet_names)
+        sheet_name = 'E2E Execution Report'
+        rows_to_fetch = [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+        columns_to_fetch = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K',]
+        result = fetch_excel_values(file_path, sheet_name, rows_to_fetch, columns_to_fetch)
+        dates = fetch_excel_values(file_path,sheet_name,[2],['F','G','H','I','J','K'])
+        management_summary = fetch_excel_values(file_path,sheet_name,[5],['B'])[0][0]
+        rag_reason_and_rtg = fetch_excel_values(file_path,sheet_name,[5],['G'])[0][0]
+        
+        # Extract column names from the first row
+        column_names = result[0]
+
+        # Create DataFrame with the remaining rows
+        data = result[1:]
+
+        # Convert to DataFrame
+        cycle_2_execution_detials = pd.DataFrame(data, columns=column_names)
+
+        dates = fetch_excel_values(file_path,sheet_name,[2],['F','G','H','I'])
+
+        dates_dict = {}
+
+        # Iterate through the list with pairs of values
+        for a, b in zip(dates[0][::2], dates[0][1::2]):
+            print(f"Pair: ({a}, {b})")
+            dates_dict[a] = [b]
+
+        dates_df = pd.DataFrame(dates_dict)
+
+        # Get today's date
+        today = datetime.now().date()
+
+        # Calculate today - 3 days
+        three_days_ago = today - timedelta(days=3)
+
+        # Print the result
+        print(f"Today: {today}")
+        print(f"Three days ago: {three_days_ago}")
+
+        dates_df["Reporting Date"] = three_days_ago
+
+        # Print the result
+        print(f"Today: {today}")
+        print(f"Three days ago: {three_days_ago}")
+
+
+        cycle_2_execution_detials["Not Started"] = cycle_2_execution_detials["Total Test"] - (cycle_2_execution_detials["Passed"]+cycle_2_execution_detials["In Progress"]+cycle_2_execution_detials["Fail"]+cycle_2_execution_detials["Blocked"]+cycle_2_execution_detials["De-scoped"])
+
+        cycle_2_execution_detials["Pass %"] = np.round(cycle_2_execution_detials["Passed"]*100 /(cycle_2_execution_detials["Total Test"]-cycle_2_execution_detials["De-scoped"]),0).astype('int')
+
+        cycle_2_execution_detials["Fail %"] = np.round(cycle_2_execution_detials["Fail"] * 100 / (cycle_2_execution_detials["Total Test"]-cycle_2_execution_detials["De-scoped"]),0).astype('int')
+
+        cycle_2_execution_detials["Block %"] = np.round(cycle_2_execution_detials["Blocked"] * 100 / (cycle_2_execution_detials["Total Test"]-cycle_2_execution_detials["De-scoped"]),0).astype('int')
+
+        cycle_2_execution_detials["Descope %"] = np.round(cycle_2_execution_detials["De-scoped"] * 100 / cycle_2_execution_detials["Total Test"],0).astype('int')
+
+        cycle_2_execution_detials["In Progress %"] = np.round(cycle_2_execution_detials["In Progress"] * 100/ (cycle_2_execution_detials["Total Test"]-cycle_2_execution_detials["De-scoped"]),2)
+
+        # summary
+
+        data_summary = {
+        }
+        data_summary["Total Test"] = [cycle_2_execution_detials["Total Test"].sum(axis=0)]
+        data_summary["Not Started"] = [cycle_2_execution_detials["Not Started"].sum(axis=0)]
+        data_summary["Passed"] = [cycle_2_execution_detials["Passed"].sum(axis=0)]
+        data_summary["In Progress"] = [cycle_2_execution_detials["In Progress"].sum(axis=0)]
+        data_summary["Fail"] = [cycle_2_execution_detials["Fail"].sum(axis=0)]
+        data_summary["Blocked"] = [cycle_2_execution_detials["Blocked"].sum(axis=0)]
+        data_summary["De-scoped"] = [cycle_2_execution_detials["De-scoped"].sum(axis=0)]
+        data_summary["Pass %"] = np.round(data_summary["Passed"][0]*100/(data_summary["Total Test"][0]-data_summary["De-scoped"][0]),2)
+        data_summary["Fail %"] = [np.round(data_summary["Fail"][0]*100/(data_summary["Total Test"][0]-data_summary["De-scoped"][0]),2)]
+        data_summary["Blocked %"] = [np.round(data_summary["Blocked"][0]*100/(data_summary["Total Test"][0]-data_summary["De-scoped"][0]),2)]
+        data_summary["De-scoped %"] = [np.round(data_summary["De-scoped"][0]*100/(data_summary["Total Test"][0]-data_summary["De-scoped"][0]),2)]
+        data_summary["In Progress %"] = [np.round(data_summary["In Progress"][0]*100/(data_summary["Total Test"][0]-data_summary["De-scoped"][0]),2)]
+        summary_df = pd.DataFrame(data_summary)
+
+        # Test Completition
+        test_completion = {}
+        test_completion["Cycle 2 Test Completion %"] = np.round((summary_df["Passed"] + summary_df["Fail"]) / (summary_df["Total Test"]-summary_df["De-scoped"]),2)
+
+        rows_to_fetch = [3]
+        columns_to_fetch = ['D', 'E']
+        result = fetch_excel_values(file_path, sheet_name, rows_to_fetch, columns_to_fetch)[0]
+        test_completion[result[0]] = result[1]
+
+        rows_to_fetch = [3]
+        columns_to_fetch = ['G', 'H',]
+
+        result = fetch_excel_values(file_path, sheet_name, rows_to_fetch, columns_to_fetch)[0]
+        test_completion[result[0]] = result[1]
+
+        rows_to_fetch = [3]
+        columns_to_fetch = ['J', 'K',]
+
+        result = fetch_excel_values(file_path, sheet_name, rows_to_fetch, columns_to_fetch)[0]
+        test_completion[result[0]] = result[1]
+
+        test_completion_df = pd.DataFrame(test_completion)
+        
+        # Process the selected file
+        # cycle_2_execution_detials, dates_df, test_completion_df, summary_df = process_emir_refit_excel(file_path, selected_sheet)
+
+        # Display the results
+        st.write("NWM Mifid Replatforming SIT Cycle 2 Test Execution Closure Report :")
+        st.write(dates_df)
+        st.write("Test Completion %")
+        st.write(test_completion_df)
+        st.write("Management Summary :")
+        st.write(management_summary)
+        st.write("RAG Reason and RTG :")
+        st.write(rag_reason_and_rtg)
+        st.write("Cycle 2 Execution Details")
+        st.write(cycle_2_execution_detials)
+        st.write("Summary")
+        st.write(summary_df)
+        print("cycle_2_execution_detials cols :",cycle_2_execution_detials.columns.tolist())
+        chart_df = cycle_2_execution_detials[['Area','Not Started', 'Passed', 'In Progress', 'Fail', 'Blocked', 'De-scoped']]
+        plot_summary(chart_df)
+
+        if st.button("Send Mail"):
+            send_mail()
+
+def plot_summary(df):
+    df.set_index('Area', inplace=True)
+    column_mapping = {
+    'Not Started': 'UNEXECUTED',
+    'Passed': 'PASS',
+    'In Progress': 'WIP',
+    'Fail': 'FAIL',
+    'Blocked': 'BLOCKED',
+    'De-scoped': 'DESCOPED'
+    }
+    df = df.rename(columns=column_mapping)
+    # Streamlit app
+    st.title('Trade and Transaction Reporting (TTR) / MIFID_REPLAT_SIT_CYCLE2')
+    st.markdown("<h3 style='font-size:28px;'>Test Execution by cycle </h3>", unsafe_allow_html=True)
+    # Plotting stacked bar chart
+    fig, ax = plt.subplots(figsize=(10, 6))
+    df.plot(kind='bar', stacked=True, ax=ax)
+
+    # Adding labels and title
+    plt.xlabel('Area')
+    plt.ylabel('Values')
+
+    # Display the plot in Streamlit
+    st.pyplot(fig)
+
+def send_mail():
+    olApp = win32.Dispatch('Outlook.Application')
+    olNS = olApp.GetNameSpace('MAPI')
+
+    mail_item = olApp.CreateItem(0)
+    
+    mail_item.Subject = "Demo"
+    mail_item.BodyFormat = 1
+
+    mail_item.Body = "Hello!"
+    mail_item.Sender = "ghosjdg@rbos.co.uk"
+    mail_item.To = "shareev@rbos.co.uk"
+
+    mail_item.Display()
+    mail_item.Save()
+    mail_item.Send()
