@@ -1,0 +1,24 @@
+import os
+import json
+from test_ai_framework.web_clients.rest_client import push_to_df
+
+# Function to read and process JSON files
+def process_json_files(folder_path):
+    json_results = []
+    for filename in os.listdir(folder_path):
+        if filename.endswith('.json'):
+            with open(os.path.join(folder_path, filename), 'r') as file:
+                data = json.load(file)
+                if isinstance(data, list):  # If data is a list of JSON objects
+                    for obj in data:
+                        json_results.append(obj)
+                elif isinstance(data, dict):  # If data is a single JSON object
+                    json_results.append(data)
+                else:
+                    print(f"Ignoring {filename}: Invalid JSON format")
+
+    # Loop through json_results array and call push_to_df method for each JSON object
+    for result in json_results:
+        push_to_df('ITR-virtual-service', result)
+I have the above code, each json objects has a field "recordId": "7b7257b220561cae", i want to sote this value into a variable name hash_key for each json object then call the following method 
+push_to_df('ITR-virtual-service', result, hash_key)
